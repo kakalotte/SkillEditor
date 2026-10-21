@@ -33,6 +33,9 @@ pub fn reveal_in_file_manager(path: &Path) -> Result<(), String> {
         return Err(format!("路径不存在: {}", path.display()));
     }
     let display = path.display().to_string();
+    // Only macOS and Windows select the item itself; the Linux branch opens
+    // the containing directory via `xdg-open`, so the binding would be unused.
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     let is_file = path.is_file();
 
     #[cfg(target_os = "macos")]

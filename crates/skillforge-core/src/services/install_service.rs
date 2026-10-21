@@ -451,6 +451,11 @@ pub fn apply_install(
         {
             if let Ok(meta) = std::fs::metadata(&destination) {
                 let mut permissions = meta.permissions();
+                // This block only compiles on non-Unix targets (in practice
+                // Windows), where clearing read-only does not imply the
+                // world-writable mode the lint warns about. The source mode is
+                // restored right after the override is written.
+                #[allow(clippy::permissions_set_readonly_false)]
                 permissions.set_readonly(false);
                 let _ = std::fs::set_permissions(&destination, permissions);
             }

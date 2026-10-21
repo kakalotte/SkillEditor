@@ -73,6 +73,57 @@ PowerShell 生成 base64：
 
 该覆盖文件已加入 `.gitignore`，不会提交。
 
+### 2.1 证书怎么获得
+
+#### Apple Developer ID（macOS）
+
+1. 加入 **Apple Developer Program**（个人或组织，99 USD/年）。
+   免费 Apple ID 不能做 Developer ID 签名，也不能公证。
+2. 在 Mac 的「钥匙串访问」→「证书助理」→「从证书颁发机构请求证书」，
+   生成 CSR 并保存到磁盘。
+3. 登录 <https://developer.apple.com/account/resources/certificates>，
+   新建 **Developer ID Application** 证书，上传 CSR，下载 `.cer`。
+4. 双击 `.cer` 安装到登录钥匙串，确认能看到签名身份：
+
+   ```bash
+   security find-identity -v -p codesigning
+   # 应出现 Developer ID Application: Your Name (TEAMID)
+   ```
+
+5. 在「钥匙串访问」中导出证书和私钥为 `.p12`，设置导出密码。
+   这个 `.p12` 和密码就是 `APPLE_CERTIFICATE` 与
+   `APPLE_CERTIFICATE_PASSWORD`。
+6. 在 <https://account.apple.com> 的「登录与安全」中创建 **App 专用密码**，
+   用于 `APPLE_PASSWORD`；`APPLE_TEAM_ID` 在开发者账号 Membership 页面查看。
+
+组织账号需要 D-U-N-S 编号，审核时间可能比个人账号长。
+
+#### Windows 代码签名
+
+当前发布工作流按 **PFX 导入**设计，适合私钥可导出的证书。
+2023 年之后，CA 新签发的代码签名证书通常要求私钥存放在硬件令牌或 HSM 中，
+不能直接导出 PFX，因此实际有两条路线：
+
+1. **Azure Trusted Signing（推荐用于 CI）**
+   - 需要 Azure 订阅，完成组织/个人身份验证；
+   - 由 Microsoft 托管签名，GitHub Actions 可直接调用；
+   - 费用通常低于传统 EV 证书，且不需要把私钥放进仓库 Secrets；
+   - 采用这条路线时，需要把当前 workflow 的 PFX 导入步骤替换为
+     Azure Trusted Signing 的 action 或 `signCommand`。
+2. **传统 OV / EV 代码签名证书**
+   - DigiCert、Sectigo、GlobalSign、SSL.com 等 CA 均有提供；
+   - OV 通常约 200–400 USD/年，EV 通常更贵；
+   - 购买前必须确认 CA 是否提供 CI 可用的 PFX 或云签名服务；
+     只在硬件令牌里、无法导出的证书不能直接用于当前 workflow；
+   - EV 证书对 SmartScreen 信誉更有利，但新证书仍可能需要时间积累声誉。
+
+3. **自签名证书**
+   - 免费，但 Windows 不信任，只适合内部测试；
+   - 不能作为公开发布包的签名方案。
+
+如果暂时没有 Windows 证书，可以先推送代码并跑三平台 CI，
+但不要打发布 tag；否则发布工作流会按设计直接失败。
+
 ### 写入 Secrets
 
 如果使用 GitHub CLI：

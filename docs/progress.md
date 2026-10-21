@@ -641,9 +641,21 @@ $ cargo test --workspace
 $ node --check ui/app.js                           # 通过
 ```
 
+### 首次 CI 结果（2026-10-21）
+
+三平台都完成了依赖安装与编译，失败点都是 macOS 本地无法触发的目标专属 lint：
+
+| 平台 | 错误 | 原因与修复 |
+| --- | --- | --- |
+| Ubuntu | `unused variable: is_file` | `is_file` 只被 macOS/Windows 分支使用；改为 `#[cfg(any(target_os = "macos", target_os = "windows"))]` 绑定 |
+| Windows | `clippy::permissions_set_readonly_false` | 覆盖文件前的只读清理位于 `#[cfg(not(unix))]`，该 lint 的「Unix 世界可写」前提不成立；就地 `#[allow]` 并注明原因，源权限仍会恢复 |
+
+macOS 本地复跑 `fmt`、`clippy -D warnings`、`cargo test --workspace`
+（165 passed）均通过。
+
 ### 仍需在 GitHub 上验证
 
-- 首次三平台 CI 是否全绿；Windows/Linux 的平台分支、原生对话框与
+- 三平台 CI 在 lint 修复后是否全绿；Windows/Linux 的平台分支、原生对话框与
   「在文件管理器中显示」仍需人工验证。
 - GitHub Secrets 是否已配置：Apple 证书/公证凭据与 Windows PFX。
   未配置时发布工作流会**主动失败**，不会静默产出未签名安装包。

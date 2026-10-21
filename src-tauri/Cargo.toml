@@ -1,0 +1,39 @@
+[package]
+name = "skillforge"
+description = "SkillForge - a local-first desktop editor for Agent Skills (Tauri shell)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish.workspace = true
+build = "build.rs"
+
+[[bin]]
+name = "skillforge"
+path = "src/main.rs"
+
+[dependencies]
+tauri.workspace = true
+tauri-plugin-dialog.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+dirs.workspace = true
+skillforge-core.workspace = true
+
+[build-dependencies]
+tauri-build.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[features]
+# We do not use the Tauri CLI, so the embedded-asset protocol is enabled by
+# default instead of only under `tauri build`. See
+# docs/decisions/0001-toolchain-and-tauri-version.md.
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
+[lints]
+workspace = true

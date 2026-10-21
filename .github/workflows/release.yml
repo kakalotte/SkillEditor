@@ -1,0 +1,248 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release (for example v0.1.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  create_release:
+    name: Create draft release
+    runs-on: ubuntu-latest
+    outputs:
+      release_id: ${{ steps.release.outputs.release_id }}
+      tag: ${{ steps.release.outputs.tag }}
+    steps:
+      - name: Create or reuse the draft release
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          NOTES=$(cat <<EOF
+          SkillForge ${TAG}
+
+          ### 下载
+
+          - macOS Apple Silicon：\`aarch64\` \`.dmg\`
+          - macOS Intel：\`x86_64\` \`.dmg\`
+          - Windows：NSIS \`.exe\` 与 \`.msi\`
+          - Linux：\`.deb\` 与 \`.AppImage\`
+
+          macOS 版本已签名并公证；Windows 版本已签名。
+          Linux 版本未签名。请按 \`README.md\` 的说明安装。
+          EOF
+          )
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            is_draft=$(gh release view "$TAG" --json isDraft --jq .isDraft)
+            if [ "$is_draft" != "true" ]; then
+              echo "::error::Release $TAG is already published; refusing to overwrite it."
+              exit 1
+            fi
+            echo "Reusing existing draft release $TAG."
+          else
+            gh release create "$TAG" \
+              --draft \
+              --verify-tag \
+              --title "SkillForge $TAG" \
+              --notes "$NOTES"
+          fi
+          release_id=$(gh release view "$TAG" --json databaseId --jq .databaseId)
+          echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: ${{ matrix.name }}
+    needs: create_release
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS arm64
+            os: macos-latest
+            args: "--target aarch64-apple-darwin --bundles dmg"
+          - name: macOS x86_64
+            os: macos-latest
+            args: "--target x86_64-apple-darwin --bundles dmg"
+          - name: Windows x64
+            os: windows-latest
+            args: "--bundles nsis,msi --config src-tauri/tauri.windows.conf.json"
+          - name: Linux x64
+            os: ubuntu-22.04
+            args: "--bundles deb,appimage"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.1
+
+      - name: Add macOS Rust targets
+        if: startsWith(matrix.os, 'macos')
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "."
+          key: release-${{ matrix.name }}
+
+      - name: Install Linux dependencies
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libfuse2 \
+            xdg-utils
+
+      - name: Verify Apple signing secrets
+        if: startsWith(matrix.os, 'macos')
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          missing=0
+          for name in \
+            APPLE_CERTIFICATE \
+            APPLE_CERTIFICATE_PASSWORD \
+            APPLE_SIGNING_IDENTITY \
+            APPLE_ID \
+            APPLE_PASSWORD \
+            APPLE_TEAM_ID; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Missing required GitHub secret: $name"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "Configure the secrets documented in docs/releasing.md."
+            exit 1
+          fi
+
+      - name: Verify Windows signing secrets
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          $missing = @()
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE)) {
+            $missing += "WINDOWS_CERTIFICATE"
+          }
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_PASSWORD)) {
+            $missing += "WINDOWS_CERTIFICATE_PASSWORD"
+          }
+          if ($missing.Count -gt 0) {
+            throw ("Missing required GitHub secrets: " + ($missing -join ", ") + ". See docs/releasing.md.")
+          }
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2.12" --locked
+
+      - name: Import Windows code-signing certificate
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          WINDOWS_TIMESTAMP_URL: ${{ secrets.WINDOWS_TIMESTAMP_URL }}
+        run: |
+          $certPath = Join-Path $env:RUNNER_TEMP "skillforge-codesign.pfx"
+          [IO.File]::WriteAllBytes(
+            $certPath,
+            [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE)
+          )
+          $password = ConvertTo-SecureString `
+            -String $env:WINDOWS_CERTIFICATE_PASSWORD `
+            -Force -AsPlainText
+          $imported = @(Import-PfxCertificate `
+            -FilePath $certPath `
+            -CertStoreLocation Cert:\CurrentUser\My `
+            -Password $password)
+          Remove-Item $certPath -Force
+
+          $cert = $imported |
+            Where-Object { $_.HasPrivateKey } |
+            Select-Object -First 1
+          if (-not $cert -or [string]::IsNullOrWhiteSpace($cert.Thumbprint)) {
+            throw "Could not import a code-signing certificate with a private key from WINDOWS_CERTIFICATE."
+          }
+
+          $timestampUrl = if ([string]::IsNullOrWhiteSpace($env:WINDOWS_TIMESTAMP_URL)) {
+            "http://timestamp.digicert.com"
+          } else {
+            $env:WINDOWS_TIMESTAMP_URL
+          }
+          $config = @{
+            bundle = @{
+              windows = @{
+                certificateThumbprint = $cert.Thumbprint
+                digestAlgorithm = "sha256"
+                timestampUrl = $timestampUrl
+              }
+            }
+          } | ConvertTo-Json -Depth 6
+
+          $configPath = Join-Path $PWD "src-tauri/tauri.windows.conf.json"
+          [IO.File]::WriteAllText(
+            $configPath,
+            $config,
+            (New-Object System.Text.UTF8Encoding($false))
+          )
+          Write-Host "Imported certificate $($cert.Thumbprint) and wrote the signing overlay."
+
+      - name: Build and create draft release
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          projectPath: .
+          tauriScript: cargo tauri
+          args: ${{ matrix.args }}
+          releaseId: ${{ needs.create_release.outputs.release_id }}
+          tagName: ${{ needs.create_release.outputs.tag }}
+          uploadUpdaterJson: false
+          uploadUpdaterSignatures: false

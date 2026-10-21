@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SkillForge</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="topbar">
+        <div class="brand">
+          <span class="logo" aria-hidden="true"></span>
+          <span class="brand-name">SkillForge</span>
+        </div>
+        <div class="workspace-summary" id="workspace-summary"></div>
+        <div class="topbar-actions">
+          <button type="button" class="btn" id="btn-refresh">刷新</button>
+        </div>
+      </header>
+
+      <div class="body">
+        <nav class="sidebar" id="sidebar" aria-label="主导航">
+          <div class="nav-label">导航</div>
+          <button type="button" class="nav-item" data-page="skills">技能</button>
+          <button type="button" class="nav-item" data-page="editor">编辑器</button>
+          <button type="button" class="nav-item" data-page="platforms">平台</button>
+          <button type="button" class="nav-item" data-page="settings">设置</button>
+        </nav>
+
+        <main class="content">
+          <section class="page" id="page-skills"></section>
+          <section class="page" id="page-editor"></section>
+          <section class="page" id="page-platforms"></section>
+          <section class="page" id="page-settings"></section>
+        </main>
+      </div>
+
+      <footer class="statusbar">
+        <span class="status" id="status-message"></span>
+        <span class="counts" id="status-counts"></span>
+        <span class="version" id="status-version"></span>
+      </footer>
+    </div>
+
+    <div class="modal" id="modal-install" hidden>
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="install-title">
+        <h2 class="modal-title" id="install-title"></h2>
+        <div class="modal-body" id="install-body"></div>
+        <div class="modal-actions">
+          <button type="button" class="btn" id="install-cancel">取消</button>
+          <button type="button" class="btn primary" id="install-confirm">确认安装</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal" id="modal-confirm" hidden>
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+        <h2 class="modal-title" id="confirm-title"></h2>
+        <div class="modal-body" id="confirm-body"></div>
+        <div class="modal-actions">
+          <button type="button" class="btn" id="confirm-cancel">取消</button>
+          <button type="button" class="btn danger" id="confirm-ok">确定</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal" id="modal-guide" hidden>
+      <div class="modal-card modal-card-wide" role="dialog" aria-modal="true" aria-labelledby="guide-title">
+        <div class="modal-head">
+          <div class="spacer">
+            <h2 class="modal-title" id="guide-title">Frontmatter 字段与规则</h2>
+            <div class="modal-sub" id="guide-sub">
+              只读参考：字段类型、约束、平台支持与校验规则。不会修改当前 SKILL.md。
+            </div>
+          </div>
+          <button type="button" class="btn small" id="guide-close">关闭</button>
+        </div>
+        <div class="guide-toolbar">
+          <input type="search" id="guide-search" class="search" placeholder="搜索字段、规则或关键词…" />
+          <div class="tabs guide-tabs" id="guide-tabs"></div>
+        </div>
+        <div class="guide-status" id="guide-status"></div>
+        <div class="modal-body guide-body" id="guide-body"></div>
+        <div class="modal-actions">
+          <span class="muted">只读参考；未知字段和现有内容不会被改动。</span>
+          <div class="spacer"></div>
+          <button type="button" class="btn primary" id="guide-done">关闭</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>

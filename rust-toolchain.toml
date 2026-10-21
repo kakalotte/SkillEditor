@@ -1,0 +1,10 @@
+# Pin the toolchain so a fresh clone builds with exactly the version this
+# implementation was verified against. See
+# docs/decisions/0001-toolchain-and-tauri-version.md.
+#
+# The crate MSRV is deliberately lower (rust-version = "1.82" in Cargo.toml);
+# this file pins what CI and the reference builds use.
+[toolchain]
+channel = "1.99.1"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

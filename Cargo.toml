@@ -1,0 +1,57 @@
+[workspace]
+resolver = "2"
+members = ["crates/skillforge-core", "src-tauri"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+# MSRV. Kept deliberately low; verified to build with the pinned toolchain in
+# docs/decisions/0001-toolchain-and-tauri-version.md.
+rust-version = "1.82"
+license = "MIT OR Apache-2.0"
+authors = ["SkillForge contributors"]
+repository = "https://github.com/kakalotte/SkillEditor"
+publish = false
+
+[workspace.dependencies]
+# --- core library -----------------------------------------------------------
+# Structured (de)serialization for settings, manifests and frontmatter values.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# YAML parsing for SKILL.md frontmatter. Chosen because it preserves mapping
+# key order and exposes an untyped Value/Mapping that lets us round-trip
+# unknown fields without loss. See docs/decisions/0002-yaml-and-frontmatter.md
+serde_yaml_ng = "0.10"
+# Typed errors for core/library code.
+thiserror = "2"
+# Platform config/data/home directory resolution.
+dirs = "7"
+# Content hashes for install manifests and conflict detection.
+sha2 = "0.10"
+hex = "0.4"
+# ZIP export/import of skill directories.
+zip = { version = "9", default-features = false, features = ["deflate"] }
+# Temporary staging directories used by the install/uninstall service.
+tempfile = "3"
+
+# --- desktop shell ----------------------------------------------------------
+# Default features are kept: they include the WebKit/WebView2 `wry` backend and
+# gzip compression of the embedded front-end assets.
+tauri = "2.12"
+tauri-build = "2.7"
+tauri-plugin-dialog = "2.8"
+
+# --- shared test/bench helpers ---------------------------------------------
+skillforge-core = { path = "crates/skillforge-core", version = "0.1.0" }
+
+[workspace.lints.rust]
+warnings = "deny"
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

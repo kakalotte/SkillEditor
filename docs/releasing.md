@@ -21,6 +21,20 @@
 发布工作流由 `v*` tag 触发，先生成 **Draft Release**。人工下载并验收后，
 再到 GitHub 上发布。四个任务都上传到同一个 Draft Release。
 
+## 1.1 签名开关
+
+是否签名由 `SIGN_BUILDS` 决定，规则如下：
+
+| 触发方式 | 是否签名 |
+| --- | --- |
+| 推送 `v*` tag | **始终签名**，证书缺失时构建失败 |
+| 手动 `workflow_dispatch`，`sign=false`（默认） | 不签名 |
+| 手动 `workflow_dispatch`，`sign=true` | 签名，证书缺失时构建失败 |
+
+这样设计的目的是：**tag 推送永远不敢静默产出未签名包**，而在证书还没
+买好的阶段，仍然可以手动触发一次未签名发布。未签名发布时，Release
+说明里会写入绕过 Gatekeeper / SmartScreen 的提示。
+
 ## 2. 必需的 GitHub Secrets
 
 签名不是可选项：发布工作流在构建前会检查 Secrets，缺失时直接失败，
@@ -174,11 +188,32 @@ git tag -a v0.1.0 -m "SkillForge v0.1.0"
 git push origin v0.1.0
 ```
 
+tag 推送会**强制签名**，没有证书时构建直接失败。
+
 也可以手动触发（tag 必须已经存在）：
 
 ```bash
 gh workflow run release.yml -f tag=v0.1.0
 ```
+
+#### 未签名发布（证书尚未购买时）
+
+手动触发时把 `sign` 关掉即可，这是默认值：
+
+```bash
+gh workflow run release.yml -f tag=v0.1.0 -f sign=false
+```
+
+仓库没有安装 `gh` CLI 时，也可以在 GitHub 网页端
+**Actions → Release → Run workflow** 里填写 tag 并取消勾选 `sign`。
+
+未签名产物的后果：
+
+- macOS 是 ad-hoc 签名，用户首次打开需右键选择「打开」；
+- Windows 安装包会触发 SmartScreen 的「更多信息 → 仍要运行」；
+- Linux 本来就未签名，没有额外影响。
+
+拿到证书并配好 Secrets 之后，改回推送 tag 的方式即可获得签名产物。
 
 ### 3.3 验收 Draft Release
 
@@ -188,11 +223,12 @@ gh workflow run release.yml -f tag=v0.1.0
 - Windows 有 NSIS `.exe` 与 `.msi`；
 - Linux 有 `.deb` 与 `.AppImage`；
 - 每个安装包都能启动，且能完成一次打开工作区、编辑、保存、导入/导出；
-- macOS 的 `.app` 通过 Gatekeeper；Windows 安装包带有效签名；
+- 签名构建：macOS 的 `.app` 通过 Gatekeeper，Windows 安装包带有效签名；
+- 未签名构建：确认 Release 说明里已写明绕过 Gatekeeper / SmartScreen 的办法；
 - Linux AppImage 在已安装 FUSE 的桌面环境可以启动，否则用
   `--appimage-extract-and-run` 验收。
 
-macOS 本地检查示例：
+签名构建的本地检查示例：
 
 ```bash
 codesign --verify --deep --strict --verbose=2 /Applications/SkillForge.app
@@ -227,8 +263,10 @@ Draft Release 中已经上传的同类产物可能需要手动删除，避免重
 ## 4. 首次发布前仍需人工确认
 
 - Windows/Linux 从未在开发机上构建过；第一次 CI 运行可能暴露平台差异。
-- Apple 公证需要有效的 Apple Developer Program 账号和 Developer ID 证书。
+- Apple 公证需要有效的 Apple Developer Program 账号和 Developer ID 证书；
+  在购买之前只能发布未签名版本（见 1.1 与 3.2）。
 - Windows 证书签名不会立刻消除 SmartScreen 的声誉提示。
 - Linux `.AppImage` 依赖 FUSE；README 需要保留
   `--appimage-extract-and-run` 的备用说明。
 - 发布工作流只负责构建与上传，不自动发布 Draft Release。
+- 未签名发布只是过渡方案；面向公众分发前应补上 macOS 与 Windows 签名。

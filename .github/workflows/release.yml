@@ -10,6 +10,11 @@ on:
         description: "Tag to release (for example v0.1.0)"
         required: true
         type: string
+      sign:
+        description: "Sign the builds. Requires the certificate secrets from docs/releasing.md; leave off for an unsigned release."
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -17,6 +22,12 @@ permissions:
 concurrency:
   group: release-${{ github.ref_name }}
   cancel-in-progress: false
+
+# A tag push always signs, so a missing certificate fails the build instead of
+# silently shipping an unsigned installer. Manual dispatch defaults to unsigned
+# so a release can be shipped before the certificates are purchased.
+env:
+  SIGN_BUILDS: ${{ github.event_name == 'push' || inputs.sign == true }}
 
 jobs:
   create_release:
@@ -34,6 +45,11 @@ jobs:
           TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           set -euo pipefail
+          if [ "$SIGN_BUILDS" = "true" ]; then
+            SIGN_NOTE="macOS 版本已签名并公证；Windows 版本已签名。"
+          else
+            SIGN_NOTE="警告：本次为未签名构建。macOS 用户需右键选择“打开”绕过 Gatekeeper；Windows 用户需点击 SmartScreen 的“更多信息 → 仍要运行”。"
+          fi
           NOTES=$(cat <<EOF
           SkillForge ${TAG}
 
@@ -44,7 +60,7 @@ jobs:
           - Windows：NSIS \`.exe\` 与 \`.msi\`
           - Linux：\`.deb\` 与 \`.AppImage\`
 
-          macOS 版本已签名并公证；Windows 版本已签名。
+          ${SIGN_NOTE}
           Linux 版本未签名。请按 \`README.md\` 的说明安装。
           EOF
           )
@@ -128,7 +144,7 @@ jobs:
             xdg-utils
 
       - name: Verify Apple signing secrets
-        if: startsWith(matrix.os, 'macos')
+        if: startsWith(matrix.os, 'macos') && env.SIGN_BUILDS == 'true'
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -156,7 +172,7 @@ jobs:
           fi
 
       - name: Verify Windows signing secrets
-        if: matrix.os == 'windows-latest'
+        if: matrix.os == 'windows-latest' && env.SIGN_BUILDS == 'true'
         shell: pwsh
         env:
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
@@ -176,14 +192,25 @@ jobs:
       - name: Install Tauri CLI
         run: cargo install tauri-cli --version "^2.12" --locked
 
-      - name: Import Windows code-signing certificate
+      # The Windows matrix args always pass --config src-tauri/tauri.windows.conf.json,
+      # so this step must run on every Windows build. When signing is off it writes an
+      # empty overlay instead of a certificate, which Tauri merges as a no-op.
+      - name: Prepare Windows bundle config
         if: matrix.os == 'windows-latest'
         shell: pwsh
         env:
+          SIGN_BUILDS: ${{ env.SIGN_BUILDS }}
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
           WINDOWS_TIMESTAMP_URL: ${{ secrets.WINDOWS_TIMESTAMP_URL }}
         run: |
+          $configPath = Join-Path $PWD "src-tauri/tauri.windows.conf.json"
+          if ($env:SIGN_BUILDS -ne "true") {
+            [IO.File]::WriteAllText($configPath, "{}", (New-Object System.Text.UTF8Encoding($false)))
+            Write-Host "Signing disabled; wrote an empty bundle overlay."
+            exit 0
+          }
+
           $certPath = Join-Path $env:RUNNER_TEMP "skillforge-codesign.pfx"
           [IO.File]::WriteAllBytes(
             $certPath,
@@ -220,7 +247,6 @@ jobs:
             }
           } | ConvertTo-Json -Depth 6
 
-          $configPath = Join-Path $PWD "src-tauri/tauri.windows.conf.json"
           [IO.File]::WriteAllText(
             $configPath,
             $config,

@@ -213,6 +213,13 @@ gh workflow run release.yml -f tag=v0.1.0 -f sign=false
 - Windows 安装包会触发 SmartScreen 的「更多信息 → 仍要运行」；
 - Linux 本来就未签名，没有额外影响。
 
+工作流为签名和未签名构建各准备了一个 `tauri-action` 步骤，不能把它们合并。
+Tauri 通过环境变量**是否存在**判断是否导入证书：即使
+`APPLE_CERTIFICATE` / `APPLE_CERTIFICATE_PASSWORD` 的值是空字符串，它也会
+尝试导入并报 `SecKeychainItemImport: Unable to decode the provided data`。
+GitHub Actions 会为 `env:` 里的每个 key 都定义变量，所以未签名步骤不能
+映射这些 Apple Secrets，否则 `sign=false` 依然会失败。
+
 拿到证书并配好 Secrets 之后，改回推送 tag 的方式即可获得签名产物。
 
 ### 3.3 验收 Draft Release

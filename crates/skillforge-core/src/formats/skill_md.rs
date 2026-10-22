@@ -47,20 +47,50 @@ pub fn parse(content: &str) -> Result<ParsedSkillMd, SkillMdError> {
 }
 
 /// Serialize frontmatter + body back to `SKILL.md` text.
+///
+/// The line-ending style of the source document is preserved for the fences
+/// and the YAML block: a document that used CRLF keeps CRLF. This matters on
+/// Windows, where editors commonly write CRLF, and it keeps an untouched
+/// document byte-for-byte identical. The body is written as provided.
 pub fn serialize(frontmatter: &FrontmatterDocument, body: &str) -> Result<String, SkillMdError> {
     if !frontmatter.is_present() {
         return Ok(body.to_string());
     }
-    let yaml = frontmatter.to_yaml_string()?;
+    let newline = detected_newline(frontmatter, body);
+    let yaml = normalize_newlines(&frontmatter.to_yaml_string()?, newline);
     let mut out = String::with_capacity(yaml.len() + body.len() + 8);
-    out.push_str("---\n");
+    out.push_str("---");
+    out.push_str(newline);
     out.push_str(&yaml);
     if !yaml.is_empty() && !yaml.ends_with('\n') {
-        out.push('\n');
+        out.push_str(newline);
     }
-    out.push_str("---\n");
+    out.push_str("---");
+    out.push_str(newline);
     out.push_str(body);
     Ok(out)
+}
+
+/// Use the style found in the source: frontmatter first, then the body.
+fn detected_newline(frontmatter: &FrontmatterDocument, body: &str) -> &'static str {
+    let sample = if frontmatter.raw().is_empty() {
+        body
+    } else {
+        frontmatter.raw()
+    };
+    if sample.contains("\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    }
+}
+
+/// Normalize every line break to `newline`, leaving lone `\r` bytes alone.
+fn normalize_newlines(text: &str, newline: &str) -> String {
+    if newline == "\n" {
+        return text.replace("\r\n", "\n");
+    }
+    text.replace("\r\n", "\n").replace('\n', newline)
 }
 
 /// Byte ranges of the YAML text and the body, for callers that rewrite only
@@ -201,5 +231,28 @@ mod tests {
         assert!(parsed.had_block);
         assert_eq!(parsed.frontmatter.get_str("name").as_deref(), Some("demo"));
         assert_eq!(parsed.body, "body");
+    }
+
+    #[test]
+    fn crlf_document_round_trips_byte_for_byte() {
+        // Windows checkouts and editors commonly produce CRLF. The untouched
+        // document must survive parse + serialize without mixed line endings.
+        let content = "---\r\nname: demo\r\ndescription: 中文\r\n---\r\n\r\n# 标题\r\n\r\n正文\r\n";
+        let parsed = parse(content).unwrap();
+        let out = serialize(&parsed.frontmatter, &parsed.body).unwrap();
+        assert_eq!(out, content);
+    }
+
+    #[test]
+    fn crlf_style_survives_a_frontmatter_edit() {
+        let content = "---\r\nname: demo\r\ndescription: old\r\n---\r\nbody\r\n";
+        let mut parsed = parse(content).unwrap();
+        parsed.frontmatter.set_str("description", "new");
+        let out = serialize(&parsed.frontmatter, &parsed.body).unwrap();
+        assert!(out.starts_with("---\r\n"), "{out:?}");
+        assert!(
+            !out.replace("\r\n", "").contains('\n'),
+            "mixed line endings: {out:?}"
+        );
     }
 }

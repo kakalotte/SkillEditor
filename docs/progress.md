@@ -653,10 +653,34 @@ $ node --check ui/app.js                           # 通过
 macOS 本地复跑 `fmt`、`clippy -D warnings`、`cargo test --workspace`
 （165 passed）均通过。
 
+### 第二次 CI 结果（2026-10-22）
+
+修复后 macOS 与 Ubuntu 全绿；Windows 通过了 Clippy，但在 `Tests` 阶段失败：
+
+```
+---- fixture_parses_and_round_trips_byte_for_byte stdout ----
+assertion `left == right` failed: untouched document must round-trip byte for byte
+```
+
+两份文本内容完全一致，只有行尾不同。原因是 Windows runner 默认以
+`core.autocrlf=true` 检出，仓库里的 `SKILL.md` fixture 到了工作区变成 CRLF；
+而 `serialize` 的 `---` 围栏固定写 LF，YAML 仍保留 CRLF，于是产生混合行尾，
+逐字节比较失败。
+
+修复：
+
+- 新增 `.gitattributes`：`* text=auto eol=lf`，让所有平台检出同一份 LF 内容，
+  并把 `*.sh` 固定为 LF、图片/压缩包标记为 binary。
+- `skill_md::serialize` 从源文档检测行尾风格，围栏与 YAML 使用同一种行尾；
+  新增 CRLF 往返与“编辑后仍保持 CRLF”测试。正文仍按调用方提供的内容写入。
+
+验证：把 fixture 临时转成 CRLF 后，`skill_roundtrip` 的 5 个测试仍全部通过；
+本地全量 `cargo test --workspace` 为 167 passed。
+
 ### 仍需在 GitHub 上验证
 
-- 三平台 CI 在 lint 修复后是否全绿；Windows/Linux 的平台分支、原生对话框与
-  「在文件管理器中显示」仍需人工验证。
+- 三平台 CI 在 `.gitattributes` 与 CRLF 修复后是否全绿；Windows/Linux 的平台分支、
+  原生对话框与「在文件管理器中显示」仍需人工验证。
 - GitHub Secrets 是否已配置：Apple 证书/公证凭据与 Windows PFX。
   未配置时发布工作流会**主动失败**，不会静默产出未签名安装包。
 - `v0.1.0` tag 与 Draft Release 的四类产物是否齐全、签名是否有效。

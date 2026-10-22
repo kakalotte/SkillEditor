@@ -254,7 +254,15 @@ jobs:
           )
           Write-Host "Imported certificate $($cert.Thumbprint) and wrote the signing overlay."
 
-      - name: Build and create draft release
+      # Tauri treats the presence of APPLE_CERTIFICATE/APPLE_CERTIFICATE_PASSWORD
+      # as "a certificate was provided", even when the value is an empty string.
+      # GitHub Actions always defines every key under `env:`, so mapping an unset
+      # secret there makes unsigned macOS builds try to import an empty .p12 and
+      # fail with `SecKeychainItemImport: Unable to decode the provided data`.
+      # Keep the signing variables on a separate step that only runs when signing
+      # so unsigned builds never see them at all.
+      - name: Build and create draft release (signed)
+        if: env.SIGN_BUILDS == 'true'
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -264,6 +272,20 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          projectPath: .
+          tauriScript: cargo tauri
+          args: ${{ matrix.args }}
+          releaseId: ${{ needs.create_release.outputs.release_id }}
+          tagName: ${{ needs.create_release.outputs.tag }}
+          uploadUpdaterJson: false
+          uploadUpdaterSignatures: false
+
+      - name: Build and create draft release (unsigned)
+        if: env.SIGN_BUILDS != 'true'
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: .
           tauriScript: cargo tauri

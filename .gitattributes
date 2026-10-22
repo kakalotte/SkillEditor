@@ -1,0 +1,14 @@
+# Normalize text files to LF in the repository and in every checkout.
+# Windows runners check out with core.autocrlf=true by default, and several
+# tests read committed fixtures and assert byte-for-byte round-trips.
+* text=auto eol=lf
+
+# Shell scripts must keep LF so they stay executable on Unix.
+*.sh text eol=lf
+
+# Binary assets: never convert or diff as text.
+*.png binary
+*.ico binary
+*.icns binary
+*.zip binary
+*.dmg binary
